@@ -20,8 +20,8 @@
       state: started
 
   - name: Copiando HTML personalizado
-    copy:
-      src: ../files/index.html
+    template:
+      src: ../files/index.html.j2
       dest: /var/www/html/index.html
 
   - name: Copiando nginx.conf
