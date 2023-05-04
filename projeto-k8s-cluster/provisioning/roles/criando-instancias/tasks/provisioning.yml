@@ -1,0 +1,77 @@
+- name: Criando o Security Group
+  local_action:
+    module: amazon.aws.ec2_security_group
+    name: "{{ sec_group_name }}"
+    description: sg giropops
+    profile: "{{ profile }}"
+    region: "{{ region }}"
+    rules:
+    - proto: tcp
+      from_port: 22
+      to_port: 22
+      cidr_ip: 0.0.0.0/0
+      rule_desc: SSH
+    rules_egress:
+    - proto: all
+      cidr_ip: 0.0.0.0/0
+  register: basic_firewall
+
+- name: Criando a instancia EC2
+  local_action: 
+    module: amazon.aws.ec2_instance
+    name: "{{ sec_group_name }}"
+    instance_type: "{{ instance_type }}"
+    image_id: "{{ image }}"
+    profile: "{{ profile }}"
+    wait: true
+    region: "{{ region }}"
+    key_name: "{{ keypair }}"
+    count: "{{ count }}"
+    security_group: "{{ sec_group_name }}"
+    state: started
+  register: ec2
+
+- name: Adicionando instancia ao inventario temporario
+  add_host:
+    name: "{{ item.public_ip_address }}"
+    groups: giropops-new
+  loop: "{{ ec2.instances }}"
+
+- name: Adicionando o IP publico da instancia criada ao arquivo hosts
+  local_action: 
+    module: lineinfile
+    path: ./hosts
+    regexp: "{{ item.public_ip_address }}"
+    insertafter: "[kubernetes]"
+    line: "{{ item.public_ip_address }}"
+  loop: "{{ ec2.instances }}"
+
+- name: Adicionando o IP privado da instancia criada ao arquivo hosts
+  local_action: 
+    module: lineinfile
+    path: ./hosts
+    regexp: "{{ item.private_ip_address }}"
+    insertafter: "[kubernetes]"
+    line: "{{ item.private_ip_address }}"
+  loop: "{{ ec2.instances }}"
+
+- name: Esperando o SSH
+  local_action: 
+    module: wait_for
+    host: "{{ item.public_ip_address }}"
+    port: 22
+    state: started
+    delay: 10
+  loop: "{{ ec2.instances }}"
+
+- name: Adicionando uma tag na instancia
+  local_action: 
+    module: amazon.aws.ec2_tag
+    resource: "{{ item.instance_id }}"
+    region: "{{ region }}"
+    profile: "{{ profile }}"
+    state: present
+  loop: "{{ ec2.instances }}"
+  args:
+    tags:
+      Name: ansible-{{ item.ami_launch_index|int + 1 }}
